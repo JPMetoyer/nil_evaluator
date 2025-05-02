@@ -1,50 +1,40 @@
-# predict.py
-# Run NIL Tier predictions directly from terminal input
-
-import pandas as pd
 import joblib
-from sklearn.preprocessing import LabelEncoder
+import pandas as pd
 
-# Load saved model
+# Load trained model and scaler
 model_path = "model/random_forest_model.pkl"
-model = joblib.load(model_path)
+scaler_path = "model/budget_scaler.pkl"
+rf_model = joblib.load(model_path)
+scaler = joblib.load(scaler_path)
 
-# Manually rebuild position encoder (same order as training)
-position_labels = ['QB', 'WR', 'RB', 'LB', 'DL', 'OL', 'DB', 'TE', 'K', 'ATH']
-position_encoder = LabelEncoder()
-position_encoder.fit(position_labels)
+# Get user input
+star_rating = float(input("Enter star rating (1 to 5): "))
+position = input("Enter player position (e.g., QB, WR): ")
+budget_raw = float(input("Enter estimated NIL budget for the school ($): "))
 
-# Welcome message
-print("Welcome to the NIL Tier Predictor!\n")
+# Encode position manually
+position_list = ['QB', 'WR', 'RB', 'OL', 'DL', 'LB', 'CB', 'S', 'TE', 'ATH']
+position_encoded = position_list.index(position) if position in position_list else 0
 
-try:
-    # Gather input from user
-    star_input = int(input("Enter star rating (1 to 5): "))
-    position_input = input("Enter player position (e.g., QB, WR): ").upper()
-    budget_input = float(input("Enter estimated NIL budget for the school ($): "))
+# Create input DataFrame
+input_df = pd.DataFrame([{
+    "Star Rating": star_rating,
+    "position_encoded": position_encoded,
+    "Estimated NIL Budget": budget_raw
+}])
 
-    # Validate position
-    if position_input not in position_labels:
-        raise ValueError("Invalid position entered.")
+# Use real scaler from training
+input_df["Estimated NIL Budget (scaled)"] = scaler.transform(input_df[["Estimated NIL Budget"]])
 
-    position_encoded = position_encoder.transform([position_input])[0]
+# Add interaction term
+input_df["rating_times_budget"] = input_df["Star Rating"] * input_df["Estimated NIL Budget (scaled)"]
 
-    # Create DataFrame for prediction
-    user_data = pd.DataFrame({
-        "Star Rating": [star_input],
-        "position_encoded": [position_encoded],
-        "Estimated NIL Budget": [budget_input]
-    })
+# Final feature set
+final_features = input_df[[
+    "Star Rating", "position_encoded", "Estimated NIL Budget (scaled)", "rating_times_budget"
+]]
 
-    # Predict NIL Tier
-    prediction = model.predict(user_data)[0]
-    decoded_tiers = {0: "A", 1: "B", 2: "C"}
-    predicted_tier = decoded_tiers.get(prediction, "Unknown")
-
-    # Output result
-    print(f"\nPredicted NIL Tier: {predicted_tier}")
-
-except ValueError as ve:
-    print(f"\nInput error: {ve}")
-except Exception as e:
-    print(f"\nAn unexpected error occurred: {e}")
+# Predict and display result
+predicted_class = rf_model.predict(final_features)[0]
+tier_mapping = {0: "A", 1: "B", 2: "C"}
+print(f"\nPredicted NIL Tier: {tier_mapping.get(predicted_class, '?')}")
